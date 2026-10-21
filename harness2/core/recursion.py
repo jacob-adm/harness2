@@ -105,6 +105,28 @@ class ModeResult:
         }
 
 
+def _rejected_error(surface, workspace: Path, rejected: list[str]) -> str:
+    """The retry message for files `read_tree` rejected: links and off-surface paths differ."""
+    links = sorted(rel for rel in rejected if (workspace / rel).is_symlink())
+    off = sorted(rel for rel in rejected if rel not in links)
+    parts = []
+    if links:
+        parts.append(
+            "these are links, not files, and were not applied: "
+            + ", ".join(links[:6])
+            + ". Replace each with real files that hold the content."
+        )
+    if off:
+        parts.append(
+            "these files are off the editable surface and were not applied: "
+            + ", ".join(off[:6])
+            + ". Component names must be lowercase letters, digits, `_` or `-` "
+            f"(e.g. `{surface.skill_dir}/doc_review/SKILL.md`, "
+            f"`scripts/check_totals.py`)."
+        )
+    return " ".join(parts)
+
+
 def _accept_tree(
     surface,
     adapter: BenchmarkAdapter,
@@ -211,16 +233,14 @@ def _run_stage(
         rejected: list[str] = []
         new = harness_tree.read_tree(surface, reply.workspace, rejected=rejected)
         if not new:
-            err = "`context/harness/` came back empty -- edit the files, do not delete them all"
+            err = (
+                _rejected_error(surface, reply.workspace, rejected)
+                if rejected
+                else "`context/harness/` came back empty -- edit the files, do not delete them all"
+            )
             continue
         if rejected:
-            err = (
-                "these files are off the editable surface and were not applied: "
-                + ", ".join(sorted(rejected)[:6])
-                + ". Component names must be lowercase letters, digits, `_` or `-` "
-                f"(e.g. `{surface.skill_dir}/doc_review/SKILL.md`, "
-                f"`scripts/check_totals.py`)."
-            )
+            err = _rejected_error(surface, reply.workspace, rejected)
             continue
 
         kept, err = _accept_tree(surface, adapter, new, fallback, label)
